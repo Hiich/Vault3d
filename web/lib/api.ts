@@ -12,10 +12,36 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// --- Profiles / Extraction ---
-export const getProfiles = () => request<{ profiles: string[] }>("/api/profiles");
+// --- Discovery / Extraction ---
+
+export interface DiscoveredWallet {
+  extensionId: string;
+  name: string;
+  slug: string;
+  parser: "metamask" | "phantom";
+  dataPath: string;
+}
+
+export interface DiscoveredProfile {
+  name: string;
+  wallets: DiscoveredWallet[];
+}
+
+export interface DiscoveredBrowser {
+  name: string;
+  slug: string;
+  basePath: string;
+  profiles: DiscoveredProfile[];
+}
+
+export interface DiscoveryResult {
+  browsers: DiscoveredBrowser[];
+}
+
+export const discover = () => request<DiscoveryResult>("/api/discover");
 
 export const extractWallets = (body: {
+  passwords?: Record<string, string>;
   metamaskPassword?: string;
   phantomPassword?: string;
 }) => request<{ wallets: number; addresses: number; errors: string[] }>("/api/extract", {
@@ -24,7 +50,9 @@ export const extractWallets = (body: {
 });
 
 export const extractProfile = (body: {
+  browserSlug: string;
   profile: string;
+  passwords?: Record<string, string>;
   metamaskPassword?: string;
   phantomPassword?: string;
 }) => request<{ wallets: number; addresses: number; errors: string[] }>("/api/extract/profile", {

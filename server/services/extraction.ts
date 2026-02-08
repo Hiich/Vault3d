@@ -1,5 +1,11 @@
 import fs from "fs-extra";
-import { discoverProfiles, getExtensionDataPath, EXTENSION_IDS } from "../../src/config.ts";
+import {
+  discoverAll,
+  getExtensionDataPathForBrowser,
+  WALLET_EXTENSIONS,
+  BROWSERS,
+} from "../../src/config.ts";
+import type { DiscoveryResult } from "../../src/config.ts";
 import { readAllEntries } from "../../src/leveldb-reader.ts";
 import * as metamask from "../../src/metamask.ts";
 import * as phantom from "../../src/phantom.ts";
@@ -13,275 +19,234 @@ export interface ExtractionResult {
 }
 
 /**
- * Extract wallets from all browser profiles.
- *
- * 1. Discovers profiles via src/config.ts
- * 2. For each profile, reads LevelDB entries via src/leveldb-reader.ts
- * 3. Decrypts MetaMask vaults (if password provided) via src/metamask.ts
- * 4. Decrypts Phantom vaults (if password provided) via src/phantom.ts
- * 5. Derives EVM addresses from MetaMask via src/evm.ts
- * 6. Persists everything to SQLite via server/db.ts
+ * Merge legacy password fields into a passwords map.
  */
-export async function extractWallets(options: {
+function buildPasswordMap(options: {
+  passwords?: Record<string, string>;
   metamaskPassword?: string;
   phantomPassword?: string;
-}): Promise<ExtractionResult> {
-  const errors: string[] = [];
+}): Record<string, string> {
+  const map: Record<string, string> = { ...(options.passwords ?? {}) };
+  // Legacy field support
+  if (options.metamaskPassword && !map.metamask) {
+    map.metamask = options.metamaskPassword;
+  }
+  if (options.phantomPassword && !map.phantom) {
+    map.phantom = options.phantomPassword;
+  }
+  return map;
+}
+
+/**
+ * Process a single wallet extension from a profile using the appropriate parser.
+ */
+async function processWallet(opts: {
+  dataPath: string;
+  slug: string;
+  name: string;
+  parser: "metamask" | "phantom";
+  password: string;
+  browserName: string;
+  profileName: string;
+}): Promise<{ wallets: number; addresses: number; errors: string[] }> {
   let walletCount = 0;
   let addressCount = 0;
+  const errors: string[] = [];
+  const profile = `${opts.browserName}/${opts.profileName}`;
 
-  let profiles: string[];
+  const exists = await fs.pathExists(opts.dataPath);
+  if (!exists) return { wallets: 0, addresses: 0, errors: [] };
+
   try {
-    profiles = await discoverProfiles();
+    const entries = await readAllEntries(opts.dataPath);
+
+    if (opts.parser === "metamask") {
+      const vault = metamask.findVault(entries);
+      if (!vault) return { wallets: 0, addresses: 0, errors: [] };
+
+      const keyrings = await metamask.decryptVault(vault, opts.password);
+      const result = metamask.extractKeys(keyrings);
+
+      // HD wallets
+      for (const hd of result.hdWallets) {
+        const walletId = insertWallet({
+          type: `${opts.slug}_hd`,
+          profile,
+          browser: opts.browserName,
+          mnemonic: hd.mnemonic,
+        });
+        walletCount++;
+
+        const addresses = deriveAddressesFromMnemonic(hd.mnemonic, hd.accounts);
+        for (let i = 0; i < addresses.length; i++) {
+          const addr = addresses[i]!;
+          insertAddress({
+            wallet_id: walletId,
+            address: addr,
+            chain_type: "evm",
+            derivation_index: i,
+          });
+          addressCount++;
+        }
+      }
+
+      // Imported keys
+      for (const imported of result.importedKeys) {
+        const hexKey = imported.privateKey.startsWith("0x")
+          ? imported.privateKey
+          : `0x${imported.privateKey}`;
+
+        const walletId = insertWallet({
+          type: `${opts.slug}_imported`,
+          profile,
+          browser: opts.browserName,
+          private_key: hexKey,
+        });
+        walletCount++;
+
+        const address = deriveAddressFromPrivateKey(imported.privateKey);
+        insertAddress({
+          wallet_id: walletId,
+          address,
+          chain_type: "evm",
+        });
+        addressCount++;
+      }
+    } else {
+      // phantom parser
+      const vaultData = phantom.findVault(entries);
+      if (!vaultData) return { wallets: 0, addresses: 0, errors: [] };
+
+      const decrypted = await phantom.decryptVault(vaultData, opts.password);
+      const result = phantom.extractKeys(decrypted);
+
+      if (result.mnemonic) {
+        insertWallet({
+          type: `${opts.slug}_seed`,
+          profile,
+          browser: opts.browserName,
+          mnemonic: result.mnemonic,
+        });
+        walletCount++;
+      }
+
+      for (const kp of result.keypairs) {
+        const walletId = insertWallet({
+          type: `${opts.slug}_keypair`,
+          profile,
+          browser: opts.browserName,
+          private_key: kp.secretKey,
+        });
+        walletCount++;
+
+        insertAddress({
+          wallet_id: walletId,
+          address: kp.publicKey,
+          chain_type: "solana",
+        });
+        addressCount++;
+      }
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { wallets: 0, addresses: 0, errors: [`Failed to discover profiles: ${msg}`] };
-  }
-
-  for (const profile of profiles) {
-    // --- MetaMask ---
-    if (options.metamaskPassword) {
-      const mmPath = getExtensionDataPath(profile, EXTENSION_IDS.METAMASK);
-      const mmExists = await fs.pathExists(mmPath);
-
-      if (mmExists) {
-        try {
-          const entries = await readAllEntries(mmPath);
-          const vault = metamask.findVault(entries);
-
-          if (vault) {
-            const keyrings = await metamask.decryptVault(vault, options.metamaskPassword);
-            const result = metamask.extractKeys(keyrings);
-
-            // HD wallets
-            for (const hd of result.hdWallets) {
-              const walletId = insertWallet({
-                type: "metamask_hd",
-                profile,
-                mnemonic: hd.mnemonic,
-              });
-              walletCount++;
-
-              // Derive and insert EVM addresses
-              const addresses = deriveAddressesFromMnemonic(hd.mnemonic, hd.accounts);
-              for (let i = 0; i < addresses.length; i++) {
-                const addr = addresses[i]!;
-                insertAddress({
-                  wallet_id: walletId,
-                  address: addr,
-                  chain_type: "evm",
-                  derivation_index: i,
-                });
-                addressCount++;
-              }
-            }
-
-            // Imported keys
-            for (const imported of result.importedKeys) {
-              const hexKey = imported.privateKey.startsWith("0x")
-                ? imported.privateKey
-                : `0x${imported.privateKey}`;
-
-              const walletId = insertWallet({
-                type: "metamask_imported",
-                profile,
-                private_key: hexKey,
-              });
-              walletCount++;
-
-              const address = deriveAddressFromPrivateKey(imported.privateKey);
-              insertAddress({
-                wallet_id: walletId,
-                address,
-                chain_type: "evm",
-              });
-              addressCount++;
-            }
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          errors.push(`[${profile}] MetaMask: ${msg}`);
-        }
-      }
-    }
-
-    // --- Phantom ---
-    if (options.phantomPassword) {
-      const phPath = getExtensionDataPath(profile, EXTENSION_IDS.PHANTOM);
-      const phExists = await fs.pathExists(phPath);
-
-      if (phExists) {
-        try {
-          const entries = await readAllEntries(phPath);
-          const vaultData = phantom.findVault(entries);
-
-          if (vaultData) {
-            const decrypted = await phantom.decryptVault(vaultData, options.phantomPassword);
-            const result = phantom.extractKeys(decrypted);
-
-            // Seed (mnemonic)
-            if (result.mnemonic) {
-              insertWallet({
-                type: "phantom_seed",
-                profile,
-                mnemonic: result.mnemonic,
-              });
-              walletCount++;
-
-              // Phantom seeds are Solana-based but we don't derive addresses
-              // from the mnemonic here (the existing code doesn't do Solana derivation).
-              // The associated keypairs will be separate entries below.
-            }
-
-            // Keypairs
-            for (const kp of result.keypairs) {
-              const walletId = insertWallet({
-                type: "phantom_keypair",
-                profile,
-                private_key: kp.secretKey,
-              });
-              walletCount++;
-
-              insertAddress({
-                wallet_id: walletId,
-                address: kp.publicKey,
-                chain_type: "solana",
-              });
-              addressCount++;
-            }
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          errors.push(`[${profile}] Phantom: ${msg}`);
-        }
-      }
-    }
+    errors.push(`[${profile}] ${opts.name}: ${msg}`);
   }
 
   return { wallets: walletCount, addresses: addressCount, errors };
 }
 
 /**
- * Extract wallets from a single profile with per-profile passwords.
+ * Extract wallets from all discovered browsers and profiles.
  */
-export async function extractProfile(options: {
-  profile: string;
+export async function extractWallets(options: {
+  passwords?: Record<string, string>;
   metamaskPassword?: string;
   phantomPassword?: string;
 }): Promise<ExtractionResult> {
-  const errors: string[] = [];
-  let walletCount = 0;
-  let addressCount = 0;
-  const profile = options.profile;
+  const passwords = buildPasswordMap(options);
 
-  // --- MetaMask ---
-  if (options.metamaskPassword) {
-    const mmPath = getExtensionDataPath(profile, EXTENSION_IDS.METAMASK);
-    const mmExists = await fs.pathExists(mmPath);
+  if (Object.keys(passwords).length === 0) {
+    return { wallets: 0, addresses: 0, errors: ["No passwords provided"] };
+  }
 
-    if (mmExists) {
-      try {
-        const entries = await readAllEntries(mmPath);
-        const vault = metamask.findVault(entries);
+  let discovery: DiscoveryResult;
+  try {
+    discovery = await discoverAll();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { wallets: 0, addresses: 0, errors: [`Failed to discover browsers: ${msg}`] };
+  }
 
-        if (vault) {
-          const keyrings = await metamask.decryptVault(vault, options.metamaskPassword);
-          const result = metamask.extractKeys(keyrings);
+  let totalWallets = 0;
+  let totalAddresses = 0;
+  const allErrors: string[] = [];
 
-          for (const hd of result.hdWallets) {
-            const walletId = insertWallet({
-              type: "metamask_hd",
-              profile,
-              mnemonic: hd.mnemonic,
-            });
-            walletCount++;
+  for (const browser of discovery.browsers) {
+    for (const profile of browser.profiles) {
+      for (const wallet of profile.wallets) {
+        const password = passwords[wallet.slug];
+        if (!password) continue;
 
-            const addresses = deriveAddressesFromMnemonic(hd.mnemonic, hd.accounts);
-            for (let i = 0; i < addresses.length; i++) {
-              const addr = addresses[i]!;
-              insertAddress({
-                wallet_id: walletId,
-                address: addr,
-                chain_type: "evm",
-                derivation_index: i,
-              });
-              addressCount++;
-            }
-          }
+        const result = await processWallet({
+          dataPath: wallet.dataPath,
+          slug: wallet.slug,
+          name: wallet.name,
+          parser: wallet.parser,
+          password,
+          browserName: browser.name,
+          profileName: profile.name,
+        });
 
-          for (const imported of result.importedKeys) {
-            const hexKey = imported.privateKey.startsWith("0x")
-              ? imported.privateKey
-              : `0x${imported.privateKey}`;
-
-            const walletId = insertWallet({
-              type: "metamask_imported",
-              profile,
-              private_key: hexKey,
-            });
-            walletCount++;
-
-            const address = deriveAddressFromPrivateKey(imported.privateKey);
-            insertAddress({
-              wallet_id: walletId,
-              address,
-              chain_type: "evm",
-            });
-            addressCount++;
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`[${profile}] MetaMask: ${msg}`);
+        totalWallets += result.wallets;
+        totalAddresses += result.addresses;
+        allErrors.push(...result.errors);
       }
     }
   }
 
-  // --- Phantom ---
-  if (options.phantomPassword) {
-    const phPath = getExtensionDataPath(profile, EXTENSION_IDS.PHANTOM);
-    const phExists = await fs.pathExists(phPath);
+  return { wallets: totalWallets, addresses: totalAddresses, errors: allErrors };
+}
 
-    if (phExists) {
-      try {
-        const entries = await readAllEntries(phPath);
-        const vaultData = phantom.findVault(entries);
+/**
+ * Extract wallets from a single browser profile with per-extension passwords.
+ */
+export async function extractProfile(options: {
+  browserSlug: string;
+  profile: string;
+  passwords?: Record<string, string>;
+  metamaskPassword?: string;
+  phantomPassword?: string;
+}): Promise<ExtractionResult> {
+  const passwords = buildPasswordMap(options);
+  let totalWallets = 0;
+  let totalAddresses = 0;
+  const allErrors: string[] = [];
 
-        if (vaultData) {
-          const decrypted = await phantom.decryptVault(vaultData, options.phantomPassword);
-          const result = phantom.extractKeys(decrypted);
+  // Find the browser name from slug
+  const browserDef = BROWSERS.find((b) => b.slug === options.browserSlug);
+  const browserName = browserDef?.name ?? options.browserSlug;
 
-          if (result.mnemonic) {
-            insertWallet({
-              type: "phantom_seed",
-              profile,
-              mnemonic: result.mnemonic,
-            });
-            walletCount++;
-          }
+  for (const ext of WALLET_EXTENSIONS) {
+    const password = passwords[ext.slug];
+    if (!password) continue;
 
-          for (const kp of result.keypairs) {
-            const walletId = insertWallet({
-              type: "phantom_keypair",
-              profile,
-              private_key: kp.secretKey,
-            });
-            walletCount++;
+    const dataPath = getExtensionDataPathForBrowser(options.browserSlug, options.profile, ext.extensionId);
+    if (!dataPath) continue;
 
-            insertAddress({
-              wallet_id: walletId,
-              address: kp.publicKey,
-              chain_type: "solana",
-            });
-            addressCount++;
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`[${profile}] Phantom: ${msg}`);
-      }
-    }
+    const result = await processWallet({
+      dataPath,
+      slug: ext.slug,
+      name: ext.name,
+      parser: ext.parser,
+      password,
+      browserName,
+      profileName: options.profile,
+    });
+
+    totalWallets += result.wallets;
+    totalAddresses += result.addresses;
+    allErrors.push(...result.errors);
   }
 
-  return { wallets: walletCount, addresses: addressCount, errors };
+  return { wallets: totalWallets, addresses: totalAddresses, errors: allErrors };
 }

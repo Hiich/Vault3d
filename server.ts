@@ -1,6 +1,6 @@
 import "./server/config.ts"; // Side-effect: sets process.env from data/config.json before other modules load
 import index from "./web/index.html";
-import { getProfiles, postExtract, postExtractProfile } from "./server/routes/extraction.ts";
+import { getDiscovery, postExtract, postExtractProfile } from "./server/routes/extraction.ts";
 import { listWallets, getWalletById, getWalletSensitiveById, deleteWalletById, patchWalletById, getWalletConnections } from "./server/routes/wallets.ts";
 import { listAddresses, getAddressById } from "./server/routes/addresses.ts";
 import { postRefresh, getSummary } from "./server/routes/balances.ts";
@@ -38,7 +38,7 @@ Bun.serve({
     // --- API Routes ---
 
     // Extraction
-    if (path === "/api/profiles" && method === "GET") return getProfiles(req);
+    if (path === "/api/discover" && method === "GET") return getDiscovery(req);
     if (path === "/api/extract" && method === "POST") return postExtract(req);
     if (path === "/api/extract/profile" && method === "POST") return postExtractProfile(req);
 

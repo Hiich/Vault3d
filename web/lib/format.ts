@@ -42,8 +42,38 @@ export function typeBadgeColor(type: string): string {
     metamask_imported: "bg-orange-400",
     phantom_seed: "bg-purple-500",
     phantom_keypair: "bg-purple-400",
+    rabby_hd: "bg-blue-500",
+    rabby_imported: "bg-blue-400",
+    coinbase_hd: "bg-indigo-500",
+    coinbase_imported: "bg-indigo-400",
   };
-  return colors[type] ?? "bg-gray-500";
+  if (colors[type]) return colors[type]!;
+
+  // Deterministic fallback: hash the slug prefix to pick a color
+  const FALLBACK_COLORS = [
+    "bg-teal-500", "bg-cyan-500", "bg-emerald-500", "bg-rose-500",
+    "bg-amber-500", "bg-lime-500", "bg-fuchsia-500", "bg-sky-500",
+  ];
+  const slug = type.split("_")[0] ?? type;
+  let hash = 0;
+  for (let i = 0; i < slug.length; i++) {
+    hash = ((hash << 5) - hash + slug.charCodeAt(i)) | 0;
+  }
+  return FALLBACK_COLORS[Math.abs(hash) % FALLBACK_COLORS.length]!;
+}
+
+export function abbreviateWalletType(type: string): string {
+  const known: Record<string, string> = {
+    metamask: "mm",
+    phantom: "ph",
+    rabby: "rb",
+    coinbase: "cb",
+  };
+  const parts = type.split("_");
+  const slug = parts[0] ?? type;
+  const suffix = parts.slice(1).join("_");
+  const abbr = known[slug] ?? slug.slice(0, 3);
+  return suffix ? `${abbr}:${suffix}` : abbr;
 }
 
 export function nativeTokenForChain(chain: string): string {

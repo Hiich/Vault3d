@@ -1,40 +1,42 @@
-import { discoverProfiles } from "../../src/config.ts";
+import { discoverAll } from "../../src/config.ts";
 import { extractWallets, extractProfile } from "../services/extraction.ts";
 
 /**
- * GET /api/profiles
- * Returns all discovered browser profiles.
+ * GET /api/discover
+ * Returns the full browser/profile/wallet discovery tree.
  */
-export async function getProfiles(_req: Request): Promise<Response> {
+export async function getDiscovery(_req: Request): Promise<Response> {
   try {
-    const profiles = await discoverProfiles();
-    return Response.json({ profiles });
+    const result = await discoverAll();
+    return Response.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return Response.json({ error: `Failed to discover profiles: ${msg}` }, { status: 500 });
+    return Response.json({ error: `Discovery failed: ${msg}` }, { status: 500 });
   }
 }
 
 /**
  * POST /api/extract
- * Body: { metamaskPassword?: string, phantomPassword?: string }
- * Extracts wallets from all profiles and persists to DB.
+ * Body: { passwords?: Record<string, string>, metamaskPassword?: string, phantomPassword?: string }
+ * Extracts wallets from all discovered browsers/profiles and persists to DB.
  */
 export async function postExtract(req: Request): Promise<Response> {
   try {
     const body = (await req.json()) as {
+      passwords?: Record<string, string>;
       metamaskPassword?: string;
       phantomPassword?: string;
     };
 
-    if (!body.metamaskPassword && !body.phantomPassword) {
+    if (!body.passwords && !body.metamaskPassword && !body.phantomPassword) {
       return Response.json(
-        { error: "At least one password (metamaskPassword or phantomPassword) is required" },
+        { error: "At least one password is required (passwords map, metamaskPassword, or phantomPassword)" },
         { status: 400 }
       );
     }
 
     const result = await extractWallets({
+      passwords: body.passwords,
       metamaskPassword: body.metamaskPassword,
       phantomPassword: body.phantomPassword,
     });
@@ -48,22 +50,24 @@ export async function postExtract(req: Request): Promise<Response> {
 
 /**
  * POST /api/extract/profile
- * Body: { profile: string, metamaskPassword?: string, phantomPassword?: string }
- * Extracts wallets from a single profile with per-profile passwords.
+ * Body: { browserSlug: string, profile: string, passwords?: Record<string, string>, metamaskPassword?: string, phantomPassword?: string }
+ * Extracts wallets from a single browser profile with per-extension passwords.
  */
 export async function postExtractProfile(req: Request): Promise<Response> {
   try {
     const body = (await req.json()) as {
+      browserSlug: string;
       profile: string;
+      passwords?: Record<string, string>;
       metamaskPassword?: string;
       phantomPassword?: string;
     };
 
-    if (!body.profile) {
-      return Response.json({ error: "Missing required field: profile" }, { status: 400 });
+    if (!body.browserSlug || !body.profile) {
+      return Response.json({ error: "Missing required fields: browserSlug and profile" }, { status: 400 });
     }
 
-    if (!body.metamaskPassword && !body.phantomPassword) {
+    if (!body.passwords && !body.metamaskPassword && !body.phantomPassword) {
       return Response.json(
         { error: "At least one password is required" },
         { status: 400 }
@@ -71,7 +75,9 @@ export async function postExtractProfile(req: Request): Promise<Response> {
     }
 
     const result = await extractProfile({
+      browserSlug: body.browserSlug,
       profile: body.profile,
+      passwords: body.passwords,
       metamaskPassword: body.metamaskPassword,
       phantomPassword: body.phantomPassword,
     });

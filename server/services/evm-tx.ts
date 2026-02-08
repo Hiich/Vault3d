@@ -130,13 +130,13 @@ export interface AddressRow {
  * Reconstruct a viem Account from a DB wallet + address row.
  */
 export function getAccount(wallet: WalletRow, address: AddressRow): Account {
-  if (wallet.type === "metamask_hd" && wallet.mnemonic) {
+  if (wallet.type.endsWith("_hd") && wallet.mnemonic) {
     return mnemonicToAccount(wallet.mnemonic, {
       addressIndex: address.derivation_index ?? 0,
     });
   }
 
-  if (wallet.type === "metamask_imported" && wallet.private_key) {
+  if (wallet.type.endsWith("_imported") && wallet.private_key) {
     const key = wallet.private_key.startsWith("0x")
       ? (wallet.private_key as `0x${string}`)
       : (`0x${wallet.private_key}` as `0x${string}`);

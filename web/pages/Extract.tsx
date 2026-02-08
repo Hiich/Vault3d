@@ -1,9 +1,13 @@
-import { useState, useEffect } from "react";
-import { getProfiles, extractWallets, extractProfile } from "../lib/api.ts";
+import { useState, useEffect, useMemo } from "react";
+import { discover, extractWallets, extractProfile } from "../lib/api.ts";
+import type { DiscoveryResult, DiscoveredBrowser } from "../lib/api.ts";
 
 interface FailedProfile {
+  browserSlug: string;
+  browserName: string;
   profile: string;
-  wallet: string; // "MetaMask" or "Phantom"
+  walletName: string;
+  walletSlug: string;
   error: string;
   password: string;
   retrying: boolean;
@@ -12,10 +16,11 @@ interface FailedProfile {
   retryError?: string;
 }
 
-function parseProfileError(error: string): { profile: string; wallet: string } | null {
-  const match = error.match(/^\[(.+?)\] (MetaMask|Phantom): /);
+function parseProfileError(error: string): { browserProfile: string; walletName: string } | null {
+  // Error format: [BrowserName/ProfileName] WalletName: message
+  const match = error.match(/^\[([^\]]+)\] ([^:]+): /);
   if (!match) return null;
-  return { profile: match[1]!, wallet: match[2]! };
+  return { browserProfile: match[1]!, walletName: match[2]! };
 }
 
 function isWrongPassword(error: string): boolean {
@@ -26,21 +31,63 @@ function isWrongPassword(error: string): boolean {
 }
 
 export function Extract() {
-  const [profiles, setProfiles] = useState<string[]>([]);
-  const [loadingProfiles, setLoadingProfiles] = useState(true);
-  const [metamaskPassword, setMetamaskPassword] = useState("");
-  const [phantomPassword, setPhantomPassword] = useState("");
+  const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [passwords, setPasswords] = useState<Record<string, string>>({});
   const [extracting, setExtracting] = useState(false);
   const [result, setResult] = useState<{ wallets: number; addresses: number; errors: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failedProfiles, setFailedProfiles] = useState<FailedProfile[]>([]);
 
   useEffect(() => {
-    getProfiles()
-      .then((data) => setProfiles(data.profiles))
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load profiles"))
-      .finally(() => setLoadingProfiles(false));
+    discover()
+      .then((data) => setDiscovery(data))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to discover browsers"))
+      .finally(() => setLoading(false));
   }, []);
+
+  // Unique wallet slugs that need passwords (only show fields for what's installed)
+  const requiredSlugs = useMemo(() => {
+    if (!discovery) return [];
+    const set = new Set<string>();
+    for (const browser of discovery.browsers) {
+      for (const profile of browser.profiles) {
+        for (const wallet of profile.wallets) {
+          set.add(wallet.slug);
+        }
+      }
+    }
+    return Array.from(set).sort();
+  }, [discovery]);
+
+  // Slug -> display name mapping
+  const slugNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (!discovery) return map;
+    for (const browser of discovery.browsers) {
+      for (const profile of browser.profiles) {
+        for (const wallet of profile.wallets) {
+          map[wallet.slug] = wallet.name;
+        }
+      }
+    }
+    return map;
+  }, [discovery]);
+
+  const totalProfiles = useMemo(() => {
+    if (!discovery) return 0;
+    return discovery.browsers.reduce((sum, b) => sum + b.profiles.length, 0);
+  }, [discovery]);
+
+  const totalWalletInstalls = useMemo(() => {
+    if (!discovery) return 0;
+    return discovery.browsers.reduce(
+      (sum, b) => sum + b.profiles.reduce((ps, p) => ps + p.wallets.length, 0),
+      0
+    );
+  }, [discovery]);
+
+  const hasAnyPassword = Object.values(passwords).some((v) => v.trim());
 
   const handleExtract = async () => {
     setExtracting(true);
@@ -48,10 +95,13 @@ export function Extract() {
     setError(null);
     setFailedProfiles([]);
     try {
-      const body: { metamaskPassword?: string; phantomPassword?: string } = {};
-      if (metamaskPassword.trim()) body.metamaskPassword = metamaskPassword.trim();
-      if (phantomPassword.trim()) body.phantomPassword = phantomPassword.trim();
-      const data = await extractWallets(body);
+      // Build clean passwords map (only non-empty values)
+      const cleanPasswords: Record<string, string> = {};
+      for (const [slug, pw] of Object.entries(passwords)) {
+        if (pw.trim()) cleanPasswords[slug] = pw.trim();
+      }
+
+      const data = await extractWallets({ passwords: cleanPasswords });
       setResult(data);
 
       // Parse errors to find wrong-password failures
@@ -60,9 +110,25 @@ export function Extract() {
         if (isWrongPassword(err)) {
           const parsed = parseProfileError(err);
           if (parsed) {
+            // Find browser/profile info from the parsed error
+            const parts = parsed.browserProfile.split("/");
+            const browserName = parts[0] ?? "";
+            const profileName = parts.slice(1).join("/") || "";
+
+            // Find the browser slug from discovery
+            const browser = discovery?.browsers.find((b) => b.name === browserName);
+
+            // Find which wallet slug this relates to
+            const walletSlug = Object.entries(slugNames).find(
+              ([, name]) => name === parsed.walletName
+            )?.[0] ?? parsed.walletName.toLowerCase();
+
             failed.push({
-              profile: parsed.profile,
-              wallet: parsed.wallet,
+              browserSlug: browser?.slug ?? browserName.toLowerCase(),
+              browserName,
+              profile: profileName,
+              walletName: parsed.walletName,
+              walletSlug,
               error: err,
               password: "",
               retrying: false,
@@ -88,13 +154,11 @@ export function Extract() {
     );
 
     try {
-      const body: { profile: string; metamaskPassword?: string; phantomPassword?: string } = {
+      const data = await extractProfile({
+        browserSlug: fp.browserSlug,
         profile: fp.profile,
-      };
-      if (fp.wallet === "MetaMask") body.metamaskPassword = fp.password.trim();
-      if (fp.wallet === "Phantom") body.phantomPassword = fp.password.trim();
-
-      const data = await extractProfile(body);
+        passwords: { [fp.walletSlug]: fp.password.trim() },
+      });
 
       if (data.errors.length > 0) {
         setFailedProfiles((prev) =>
@@ -112,7 +176,6 @@ export function Extract() {
               : p
           )
         );
-        // Update totals
         setResult((prev) =>
           prev
             ? {
@@ -134,7 +197,7 @@ export function Extract() {
     }
   };
 
-  const updatePassword = (index: number, password: string) => {
+  const updateRetryPassword = (index: number, password: string) => {
     setFailedProfiles((prev) =>
       prev.map((p, i) => (i === index ? { ...p, password, retryError: undefined } : p))
     );
@@ -142,67 +205,81 @@ export function Extract() {
 
   const otherErrors = result?.errors.filter((e) => !isWrongPassword(e)) ?? [];
 
+  // Browser icon colors
+  const browserColors: Record<string, string> = {
+    brave: "text-orange-400",
+    chrome: "text-blue-400",
+    edge: "text-cyan-400",
+    arc: "text-pink-400",
+    opera: "text-red-400",
+    chromium: "text-gray-400",
+  };
+
+  // Wallet badge colors
+  const walletColors: Record<string, string> = {
+    metamask: "bg-orange-500/20 text-orange-400",
+    phantom: "bg-purple-500/20 text-purple-400",
+    rabby: "bg-blue-500/20 text-blue-400",
+    coinbase: "bg-indigo-500/20 text-indigo-400",
+  };
+
   return (
     <div>
       <div className="mb-6">
         <h2 className="text-xl font-bold">Extract Wallets</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Discover browser profiles and extract wallet data
+          Discover browsers, profiles, and wallet extensions
         </p>
       </div>
 
-      {/* Discovered Profiles */}
+      {/* Discovery Tree */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6">
-        <h3 className="text-sm font-semibold text-gray-300 mb-3">Discovered Profiles</h3>
-        {loadingProfiles ? (
-          <div className="text-sm text-gray-500">Scanning for browser profiles...</div>
-        ) : profiles.length === 0 ? (
-          <div className="text-sm text-gray-500">No browser profiles found.</div>
+        <h3 className="text-sm font-semibold text-gray-300 mb-3">
+          Discovered Browsers
+          {!loading && discovery && (
+            <span className="text-gray-600 font-normal ml-2">
+              {discovery.browsers.length} browser{discovery.browsers.length !== 1 ? "s" : ""}, {totalProfiles} profile{totalProfiles !== 1 ? "s" : ""}, {totalWalletInstalls} wallet{totalWalletInstalls !== 1 ? "s" : ""}
+            </span>
+          )}
+        </h3>
+        {loading ? (
+          <div className="text-sm text-gray-500">Scanning for browsers and wallet extensions...</div>
+        ) : !discovery || discovery.browsers.length === 0 ? (
+          <div className="text-sm text-gray-500">No browsers with wallet extensions found.</div>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {profiles.map((p) => (
-              <span
-                key={p}
-                className="bg-gray-800 border border-gray-700 text-gray-300 text-xs px-3 py-1.5 rounded-lg"
-              >
-                {p}
-              </span>
+          <div className="space-y-3">
+            {discovery.browsers.map((browser) => (
+              <BrowserNode key={browser.slug} browser={browser} browserColors={browserColors} walletColors={walletColors} />
             ))}
           </div>
         )}
       </div>
 
-      {/* Password Inputs */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6">
-        <h3 className="text-sm font-semibold text-gray-300 mb-4">Wallet Passwords</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">MetaMask Password</label>
-            <input
-              type="password"
-              value={metamaskPassword}
-              onChange={(e) => setMetamaskPassword(e.target.value)}
-              placeholder="Enter MetaMask password"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Phantom Password</label>
-            <input
-              type="password"
-              value={phantomPassword}
-              onChange={(e) => setPhantomPassword(e.target.value)}
-              placeholder="Enter Phantom password"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500"
-            />
+      {/* Dynamic Password Inputs */}
+      {requiredSlugs.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6">
+          <h3 className="text-sm font-semibold text-gray-300 mb-4">Wallet Passwords</h3>
+          <div className={`grid grid-cols-1 ${requiredSlugs.length > 1 ? "md:grid-cols-2" : ""} gap-4`}>
+            {requiredSlugs.map((slug) => (
+              <div key={slug}>
+                <label className="block text-xs text-gray-500 mb-1.5">{slugNames[slug] ?? slug} Password</label>
+                <input
+                  type="password"
+                  value={passwords[slug] ?? ""}
+                  onChange={(e) => setPasswords((prev) => ({ ...prev, [slug]: e.target.value }))}
+                  placeholder={`Enter ${slugNames[slug] ?? slug} password`}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Extract Button */}
       <button
         onClick={handleExtract}
-        disabled={extracting || (!metamaskPassword.trim() && !phantomPassword.trim())}
+        disabled={extracting || !hasAnyPassword}
         className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2"
       >
         {extracting ? (
@@ -274,7 +351,7 @@ export function Extract() {
           <div className="space-y-3">
             {failedProfiles.map((fp, i) => (
               <div
-                key={`${fp.profile}-${fp.wallet}`}
+                key={`${fp.browserSlug}-${fp.profile}-${fp.walletSlug}`}
                 className={`rounded-lg p-3 ${
                   fp.resolved
                     ? "bg-green-900/20 border border-green-800/50"
@@ -282,15 +359,13 @@ export function Extract() {
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  {/* Profile + wallet type label */}
+                  {/* Browser/profile + wallet type label */}
                   <div className="shrink-0">
-                    <span className="text-sm font-medium text-gray-200">{fp.profile}</span>
+                    <span className="text-sm font-medium text-gray-200">{fp.browserName}/{fp.profile}</span>
                     <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                      fp.wallet === "MetaMask"
-                        ? "bg-orange-500/20 text-orange-400"
-                        : "bg-purple-500/20 text-purple-400"
+                      walletColors[fp.walletSlug] ?? "bg-gray-500/20 text-gray-400"
                     }`}>
-                      {fp.wallet}
+                      {fp.walletName}
                     </span>
                   </div>
 
@@ -305,19 +380,16 @@ export function Extract() {
                     </div>
                   ) : (
                     <>
-                      {/* Password input */}
                       <input
                         type="password"
                         value={fp.password}
-                        onChange={(e) => updatePassword(i, e.target.value)}
-                        placeholder={`${fp.wallet} password for ${fp.profile}`}
+                        onChange={(e) => updateRetryPassword(i, e.target.value)}
+                        placeholder={`${fp.walletName} password for ${fp.browserName}/${fp.profile}`}
                         className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500"
                         onKeyDown={(e) => {
                           if (e.key === "Enter") handleRetry(i);
                         }}
                       />
-
-                      {/* Retry button */}
                       <button
                         onClick={() => handleRetry(i)}
                         disabled={fp.retrying || !fp.password.trim()}
@@ -339,7 +411,6 @@ export function Extract() {
                   )}
                 </div>
 
-                {/* Retry error */}
                 {fp.retryError && (
                   <div className="mt-2 text-xs text-red-400 bg-red-900/20 rounded px-2 py-1">
                     {fp.retryError}
@@ -348,6 +419,65 @@ export function Extract() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Browser tree node ---
+
+function BrowserNode({
+  browser,
+  browserColors,
+  walletColors,
+}: {
+  browser: DiscoveredBrowser;
+  browserColors: Record<string, string>;
+  walletColors: Record<string, string>;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const totalWallets = browser.profiles.reduce((sum, p) => sum + p.wallets.length, 0);
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-800/80 rounded-lg transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 text-gray-500 transition-transform ${expanded ? "rotate-90" : ""}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+        </svg>
+        <span className={`text-sm font-medium ${browserColors[browser.slug] ?? "text-gray-300"}`}>
+          {browser.name}
+        </span>
+        <span className="text-xs text-gray-600">
+          {browser.profiles.length} profile{browser.profiles.length !== 1 ? "s" : ""}, {totalWallets} wallet{totalWallets !== 1 ? "s" : ""}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-2 space-y-1.5 ml-5">
+          {browser.profiles.map((profile) => (
+            <div key={profile.name} className="flex items-center gap-2 py-1">
+              <span className="text-xs text-gray-400 font-mono">{profile.name}</span>
+              <div className="flex flex-wrap gap-1">
+                {profile.wallets.map((wallet) => (
+                  <span
+                    key={wallet.extensionId}
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      walletColors[wallet.slug] ?? "bg-gray-500/20 text-gray-400"
+                    }`}
+                  >
+                    {wallet.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

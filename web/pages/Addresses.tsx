@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { getWallets, deleteWallet, refreshBalances, getAllTokens } from "../lib/api.ts";
 import type { WalletWithAddresses, BalanceEntry } from "../lib/api.ts";
-import { truncateAddress, formatBalance, typeBadgeColor } from "../lib/format.ts";
+import { truncateAddress, formatBalance, typeBadgeColor, abbreviateWalletType } from "../lib/format.ts";
 import { BulkSendBar } from "../components/BulkSendBar.tsx";
 import { SendModal } from "../components/SendModal.tsx";
 
@@ -699,7 +699,7 @@ function FlatAddressRow({
               </svg>
             </button>
             <span className={`${typeBadgeColor(row.walletType)} text-white px-1.5 py-px rounded text-[10px] leading-tight flex-shrink-0`}>
-              {row.walletType.replace("metamask_", "mm:").replace("phantom_", "ph:")}
+              {abbreviateWalletType(row.walletType)}
             </span>
             <span className="text-[10px] text-gray-600 flex-shrink-0">{row.profile}</span>
             {row.walletLabel && (

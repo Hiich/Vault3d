@@ -23,6 +23,18 @@ export function getDb(): Database {
   return db;
 }
 
+function runMigrations(db: Database) {
+  // Check if browser column exists
+  const cols = db.prepare("PRAGMA table_info(wallets)").all() as { name: string }[];
+  const hasBrowser = cols.some((c) => c.name === "browser");
+  if (!hasBrowser) {
+    db.exec(`ALTER TABLE wallets ADD COLUMN browser TEXT`);
+    db.exec(`UPDATE wallets SET browser = 'Brave' WHERE browser IS NULL`);
+    // Prefix profile values with browser name for existing records
+    db.exec(`UPDATE wallets SET profile = 'Brave/' || profile WHERE profile NOT LIKE '%/%'`);
+  }
+}
+
 function initSchema(db: Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS wallets (
@@ -121,6 +133,9 @@ function initSchema(db: Database) {
       UNIQUE(chain, contract)
     );
   `);
+
+  // --- Migration: add browser column ---
+  runMigrations(db);
 }
 
 // --- Wallet helpers ---
@@ -128,17 +143,19 @@ function initSchema(db: Database) {
 export function insertWallet(data: {
   type: string;
   profile: string;
+  browser?: string | null;
   mnemonic?: string | null;
   private_key?: string | null;
   label?: string | null;
 }): number {
   const stmt = getDb().prepare(
-    `INSERT INTO wallets (type, profile, mnemonic, private_key, label)
-     VALUES ($type, $profile, $mnemonic, $private_key, $label)`
+    `INSERT INTO wallets (type, profile, browser, mnemonic, private_key, label)
+     VALUES ($type, $profile, $browser, $mnemonic, $private_key, $label)`
   );
   const result = stmt.run({
     $type: data.type,
     $profile: data.profile,
+    $browser: data.browser ?? null,
     $mnemonic: data.mnemonic ?? null,
     $private_key: data.private_key ?? null,
     $label: data.label ?? null,
