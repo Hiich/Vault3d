@@ -22,9 +22,9 @@ Opens at http://127.0.0.1:3000.
 
 ## Relaunch
 
+- **Terminal**: `vault3d` (works anywhere after install)
 - **macOS**: Search "Vault3d" in Spotlight (Cmd+Space)
 - **Linux**: Find "Vault3d" in your app menu
-- **Terminal**: `~/Vault3d/launch.sh`
 
 ## Features
 
