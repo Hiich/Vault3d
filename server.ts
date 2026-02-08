@@ -1,3 +1,4 @@
+import "./server/config.ts"; // Side-effect: sets process.env from data/config.json before other modules load
 import index from "./web/index.html";
 import { getProfiles, postExtract, postExtractProfile } from "./server/routes/extraction.ts";
 import { listWallets, getWalletById, getWalletSensitiveById, deleteWalletById, patchWalletById, getWalletConnections } from "./server/routes/wallets.ts";
@@ -5,6 +6,7 @@ import { listAddresses, getAddressById } from "./server/routes/addresses.ts";
 import { postRefresh, getSummary } from "./server/routes/balances.ts";
 import { postEstimate, postSend, postBulkSend, listTransactions } from "./server/routes/transactions.ts";
 import { postScan, getScanStateSummary, getClusters, listConnections } from "./server/routes/connections.ts";
+import { getSettings, postSettings } from "./server/routes/settings.ts";
 
 const PORT = 3000;
 
@@ -69,6 +71,10 @@ Bun.serve({
     if (path === "/api/connections/scan-state" && method === "GET") return getScanStateSummary(req);
     if (path === "/api/connections/clusters" && method === "GET") return getClusters(req);
     if (path === "/api/connections" && method === "GET") return listConnections(req);
+
+    // Settings
+    if (path === "/api/settings" && method === "GET") return getSettings(req);
+    if (path === "/api/settings" && method === "POST") return postSettings(req);
 
     // 404
     return Response.json({ error: "Not found" }, { status: 404 });

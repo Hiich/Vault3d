@@ -5,12 +5,23 @@ import {
 } from "../services/connection-detector.ts";
 import type { ConnectionRow } from "../services/connection-detector.ts";
 import { liveScan } from "../services/transfer-fetcher.ts";
+import { hasAlchemyKey, hasHeliusKey } from "../config.ts";
 
 /**
  * POST /api/connections/scan
  * Trigger scan in the background, return immediately.
  */
 export function postScan(_req: Request): Response {
+  if (!hasAlchemyKey() && !hasHeliusKey()) {
+    return Response.json(
+      {
+        error: "API keys not configured. Go to Settings to add your Alchemy and Helius API keys.",
+        configRequired: true,
+      },
+      { status: 400 }
+    );
+  }
+
   if (liveScan.scanning) {
     return Response.json({ error: "Scan already in progress" }, { status: 409 });
   }

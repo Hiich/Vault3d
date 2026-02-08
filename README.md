@@ -24,39 +24,37 @@ Connections      — Cluster cards + interactive D3 graph
 
 ## Quick Start
 
-### Prerequisites
+### Easy Install (one command)
 
-- [Bun](https://bun.sh) v1.1+
-- Brave browser with MetaMask and/or Phantom extensions installed
-- API keys for [Alchemy](https://dashboard.alchemy.com) (EVM) and [Helius](https://dashboard.helius.dev) (Solana)
+```bash
+git clone https://github.com/hichambenhima/Vault3d.git && cd Vault3d && bash setup.sh
+```
 
-### Setup
+This handles everything: installs Bun (if needed), installs dependencies, starts the server, and opens the app. On first run you'll see a setup wizard to enter your API keys (or skip — extraction works without them).
+
+### Developer Setup
 
 ```bash
 git clone https://github.com/hichambenhima/Vault3d.git
 cd Vault3d
 bun install
+bun run start
 ```
 
-Create a `.env` file (Bun auto-loads it):
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
-```bash
-cp .env.example .env
-# Edit .env with your API keys
-```
+### API Keys
+
+API keys are configured through the web UI (Settings page) and stored in `data/config.json`. You can also use a `.env` file:
 
 ```env
 ALCHEMY_API_KEY=your_alchemy_key
 HELIUS_API_KEY=your_helius_key
 ```
 
-### Run
-
-```bash
-bun --hot server.ts
-```
-
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+- [Alchemy](https://dashboard.alchemy.com) — required for EVM chain balances, transactions, and connection scanning
+- [Helius](https://dev.helius.xyz) — required for Solana balances, transactions, and connection scanning
+- Wallet extraction works without any API keys
 
 ## How It Works
 
@@ -96,7 +94,9 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 ```
 server.ts                         Bun.serve() entry point (127.0.0.1:3000)
+├── setup.sh                      One-command installer
 ├── server/
+│   ├── config.ts                 Config manager (reads data/config.json → process.env)
 │   ├── db.ts                     SQLite schema + CRUD (bun:sqlite, WAL mode)
 │   ├── routes/                   API route handlers
 │   │   ├── extraction.ts         Profile discovery + vault extraction
@@ -104,7 +104,8 @@ server.ts                         Bun.serve() entry point (127.0.0.1:3000)
 │   │   ├── addresses.ts          Address listing + detail
 │   │   ├── balances.ts           Balance refresh + summary
 │   │   ├── transactions.ts       Fee estimation + send + bulk send
-│   │   └── connections.ts        Scan trigger + clusters + connection list
+│   │   ├── connections.ts        Scan trigger + clusters + connection list
+│   │   └── settings.ts           API key configuration
 │   └── services/                 Business logic
 │       ├── extraction.ts         Orchestrates src/* modules → DB
 │       ├── balance-fetcher.ts    Multicall3 / Solana RPC → DB upsert
@@ -124,7 +125,7 @@ server.ts                         Bun.serve() entry point (127.0.0.1:3000)
 │   ├── index.html                Entry — Tailwind + D3.js via CDN
 │   ├── app.tsx                   Hash-based router (~35 lines)
 │   ├── pages/                    Dashboard, Extract, Addresses, AddressDetail,
-│   │                             Transactions, Connections
+│   │                             Transactions, Connections, Settings, Setup
 │   ├── components/               Layout, SendModal, BulkSendBar, FilterBar
 │   └── lib/                      Typed API client + formatting utils
 └── data/                         SQLite DB (gitignored, 0o600 permissions)
@@ -168,6 +169,8 @@ Seven tables in SQLite (WAL mode, foreign keys, cascading deletes):
 | `GET` | `/api/connections/scan-state` | Scan progress |
 | `GET` | `/api/connections/clusters` | Computed address clusters |
 | `GET` | `/api/connections` | Paginated connection list |
+| `GET` | `/api/settings` | Config status (never returns actual keys) |
+| `POST` | `/api/settings` | Save API keys + complete setup |
 
 ## Tech Stack
 
@@ -193,7 +196,7 @@ Seven tables in SQLite (WAL mode, foreign keys, cascading deletes):
 - **Passwords never stored** — Used only during extraction, then discarded
 - **Sensitive data behind separate endpoint** — `/api/wallets/:id/sensitive` with click-to-reveal UI
 - **No telemetry, no external calls** except RPC providers (Alchemy, Helius) for balance/transfer data
-- **API keys in `.env`** — Never committed to the repository
+- **API keys in `.env` or `data/config.json`** — Never committed to the repository, config file created with `0o600` permissions
 
 ## Supported Wallets
 

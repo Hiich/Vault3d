@@ -3,6 +3,7 @@ import { estimateEvmTx, sendEvmTx } from "../services/evm-tx.ts";
 import type { WalletRow, AddressRow, EvmTxParams } from "../services/evm-tx.ts";
 import { estimateSolanaTx, sendSolanaTx } from "../services/solana-tx.ts";
 import type { SolanaWalletRow, SolanaTxParams } from "../services/solana-tx.ts";
+import { hasAlchemyKey, hasHeliusKey } from "../config.ts";
 
 interface TxRequestBody {
   fromAddressId: number;
@@ -10,6 +11,30 @@ interface TxRequestBody {
   chain: string;
   token: string;
   amount: string;
+}
+
+const SOLANA_CHAINS = new Set(["solana"]);
+
+function checkChainConfig(chain: string): Response | null {
+  if (SOLANA_CHAINS.has(chain) && !hasHeliusKey()) {
+    return Response.json(
+      {
+        error: "Helius API key not configured. Go to Settings to add your Helius API key.",
+        configRequired: true,
+      },
+      { status: 400 }
+    );
+  }
+  if (!SOLANA_CHAINS.has(chain) && !hasAlchemyKey()) {
+    return Response.json(
+      {
+        error: "Alchemy API key not configured. Go to Settings to add your Alchemy API key.",
+        configRequired: true,
+      },
+      { status: 400 }
+    );
+  }
+  return null;
 }
 
 /**
@@ -61,6 +86,9 @@ export async function postEstimate(req: Request): Promise<Response> {
         { status: 400 }
       );
     }
+
+    const configError = checkChainConfig(body.chain);
+    if (configError) return configError;
 
     const { address, wallet } = lookupAddressAndWallet(body.fromAddressId);
 
@@ -122,6 +150,9 @@ export async function postSend(req: Request): Promise<Response> {
         { status: 400 }
       );
     }
+
+    const configError = checkChainConfig(body.chain);
+    if (configError) return configError;
 
     const { address, wallet } = lookupAddressAndWallet(body.fromAddressId);
 
@@ -237,6 +268,13 @@ export async function postBulkSend(req: Request): Promise<Response> {
         { error: "Missing or empty 'transfers' array" },
         { status: 400 }
       );
+    }
+
+    // Check config for all unique chains in the batch
+    const chains = new Set(body.transfers.map((t) => t.chain));
+    for (const chain of chains) {
+      const configError = checkChainConfig(chain);
+      if (configError) return configError;
     }
 
     const results: Array<{

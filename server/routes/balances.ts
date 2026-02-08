@@ -1,5 +1,6 @@
 import { getDb } from "../db.ts";
 import { fetchAndStoreBalances } from "../services/balance-fetcher.ts";
+import { hasAlchemyKey, hasHeliusKey } from "../config.ts";
 
 /**
  * POST /api/balances/refresh
@@ -9,6 +10,16 @@ import { fetchAndStoreBalances } from "../services/balance-fetcher.ts";
  */
 export async function postRefresh(req: Request): Promise<Response> {
   try {
+    if (!hasAlchemyKey() && !hasHeliusKey()) {
+      return Response.json(
+        {
+          error: "API keys not configured. Go to Settings to add your Alchemy and Helius API keys.",
+          configRequired: true,
+        },
+        { status: 400 }
+      );
+    }
+
     const body = (await req.json().catch(() => ({}))) as {
       addressIds?: number[];
     };

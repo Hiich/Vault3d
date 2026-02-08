@@ -279,6 +279,26 @@ export const getConnections = (params?: Record<string, string>) => {
   }>(`/api/connections${qs}`);
 };
 
+// --- Config / Settings ---
+export interface ConfigStatus {
+  hasAlchemyKey: boolean;
+  hasHeliusKey: boolean;
+  isConfigured: boolean;
+  setupCompletedAt: string | null;
+}
+
+export const getConfigStatus = () => request<ConfigStatus>("/api/settings");
+
+export const saveConfig = (body: {
+  alchemy_api_key?: string;
+  helius_api_key?: string;
+  completeSetup?: boolean;
+}) =>
+  request<{ saved: boolean; restartRequired: boolean }>("/api/settings", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 // --- Bulk Send ---
 export interface BulkTransferItem {
   fromAddressId: number;

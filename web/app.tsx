@@ -7,6 +7,9 @@ import { Addresses } from "./pages/Addresses.tsx";
 import { Transactions } from "./pages/Transactions.tsx";
 import { Connections, ClusterDetail } from "./pages/Connections.tsx";
 import { AddressDetail } from "./pages/AddressDetail.tsx";
+import { Setup } from "./pages/Setup.tsx";
+import { Settings } from "./pages/Settings.tsx";
+import { getConfigStatus } from "./lib/api.ts";
 
 interface Route {
   page: string;
@@ -35,6 +38,8 @@ function parseHash(): Route {
     "/addresses": "addresses",
     "/transactions": "transactions",
     "/connections": "connections",
+    "/settings": "settings",
+    "/setup": "setup",
   };
 
   return { page: routes[path] ?? "dashboard", params: {} };
@@ -42,12 +47,48 @@ function parseHash(): Route {
 
 function App() {
   const [route, setRoute] = useState<Route>(parseHash);
+  const [checkingSetup, setCheckingSetup] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
 
   useEffect(() => {
     const onHashChange = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  // Check if first-run setup is needed
+  useEffect(() => {
+    getConfigStatus()
+      .then((status) => {
+        if (!status.setupCompletedAt) {
+          setNeedsSetup(true);
+        }
+      })
+      .catch(() => {
+        // If settings endpoint fails, skip setup check
+      })
+      .finally(() => setCheckingSetup(false));
+  }, []);
+
+  // Show setup page on first run
+  if (checkingSetup) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-500 text-sm">Loading...</div>
+      </div>
+    );
+  }
+
+  if (needsSetup && route.page !== "settings") {
+    return (
+      <Setup
+        onComplete={() => {
+          setNeedsSetup(false);
+          window.location.hash = "#/";
+        }}
+      />
+    );
+  }
 
   const renderPage = () => {
     switch (route.page) {
@@ -65,6 +106,8 @@ function App() {
         return <Connections />;
       case "clusterDetail":
         return <ClusterDetail clusterId={Number(route.params.clusterId)} />;
+      case "settings":
+        return <Settings />;
       default:
         return <Dashboard />;
     }
