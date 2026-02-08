@@ -108,12 +108,18 @@ OS="$(uname -s)"
 if [ "$OS" = "Darwin" ]; then
   # macOS: create .app bundle in ~/Applications (searchable via Spotlight)
   APP_DIR="$HOME/Applications/Vault3d.app/Contents/MacOS"
-  mkdir -p "$APP_DIR"
+  RESOURCES_DIR="$HOME/Applications/Vault3d.app/Contents/Resources"
+  mkdir -p "$APP_DIR" "$RESOURCES_DIR"
   cat > "$APP_DIR/Vault3d" << LAUNCHER
 #!/bin/bash
 exec "$INSTALL_DIR/launch.sh"
 LAUNCHER
   chmod +x "$APP_DIR/Vault3d"
+
+  # Copy app icon
+  if [ -f "$INSTALL_DIR/icon.icns" ]; then
+    cp "$INSTALL_DIR/icon.icns" "$RESOURCES_DIR/AppIcon.icns"
+  fi
 
   # Info.plist for proper app identity
   cat > "$HOME/Applications/Vault3d.app/Contents/Info.plist" << PLIST
@@ -126,6 +132,7 @@ LAUNCHER
   <key>CFBundleIdentifier</key><string>com.vault3d.app</string>
   <key>CFBundleVersion</key><string>1.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSUIElement</key><false/>
 </dict>
 </plist>
@@ -140,6 +147,7 @@ elif [ "$OS" = "Linux" ]; then
 [Desktop Entry]
 Name=Vault3d
 Exec=$INSTALL_DIR/launch.sh
+Icon=$INSTALL_DIR/logo.png
 Type=Application
 Terminal=true
 Categories=Utility;
