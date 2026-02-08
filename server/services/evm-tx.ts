@@ -74,6 +74,27 @@ const NATIVE_DECIMALS: Record<string, number> = {
   abstract: 18,
 };
 
+import { getEffectiveChains } from "./token-registry.ts";
+
+function resolveTokenInfo(
+  chainName: string,
+  tokenName: string
+): TokenInfo | null {
+  // Check hardcoded first for speed
+  const hardcoded = TOKEN_CONTRACTS[chainName]?.[tokenName];
+  if (hardcoded) return hardcoded;
+
+  // Fall back to dynamic tokens from DB
+  const chains = getEffectiveChains();
+  const chain = chains.find((c) => c.name === chainName);
+  if (!chain) return null;
+
+  const token = chain.tokens.find((t) => t.name === tokenName);
+  if (!token) return null;
+
+  return { contract: token.contract as `0x${string}`, decimals: token.decimals };
+}
+
 // ERC-20 transfer ABI
 const erc20TransferAbi = [
   {
@@ -188,7 +209,7 @@ export async function estimateEvmTx(params: EvmTxParams): Promise<{
   }
 
   // ERC-20 transfer
-  const tokenInfo = TOKEN_CONTRACTS[params.chain]?.[params.token];
+  const tokenInfo = resolveTokenInfo(params.chain, params.token);
   if (!tokenInfo) {
     throw new Error(`Unknown token ${params.token} on chain ${params.chain}`);
   }
@@ -248,7 +269,7 @@ export async function sendEvmTx(params: EvmTxParams): Promise<{
   }
 
   // ERC-20 transfer
-  const tokenInfo = TOKEN_CONTRACTS[params.chain]?.[params.token];
+  const tokenInfo = resolveTokenInfo(params.chain, params.token);
   if (!tokenInfo) {
     throw new Error(`Unknown token ${params.token} on chain ${params.chain}`);
   }

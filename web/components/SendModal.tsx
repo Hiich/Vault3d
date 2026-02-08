@@ -7,6 +7,7 @@ interface Props {
   fromAddressId: number;
   fromAddress: string;
   chainType: string;
+  tokenMap: Record<string, string[]>;
   onClose: () => void;
   onSent: () => void;
 }
@@ -16,7 +17,7 @@ const chainOptions: Record<string, string[]> = {
   solana: ["solana"],
 };
 
-const tokenOptions: Record<string, string[]> = {
+const defaultTokenOptions: Record<string, string[]> = {
   ethereum: ["ETH", "USDC", "USDT"],
   base: ["ETH", "USDC", "USDT"],
   polygon: ["POL", "USDC", "USDT"],
@@ -24,10 +25,11 @@ const tokenOptions: Record<string, string[]> = {
   solana: ["SOL", "USDC"],
 };
 
-export function SendModal({ fromAddressId, fromAddress, chainType, onClose, onSent }: Props) {
+export function SendModal({ fromAddressId, fromAddress, chainType, tokenMap, onClose, onSent }: Props) {
   const chains = chainOptions[chainType] ?? [];
+  const getTokensForChain = (c: string) => tokenMap[c] ?? defaultTokenOptions[c] ?? [];
   const [chain, setChain] = useState(chains[0] ?? "");
-  const [token, setToken] = useState((tokenOptions[chains[0] ?? ""] ?? [])[0] ?? "");
+  const [token, setToken] = useState((getTokensForChain(chains[0] ?? ""))[0] ?? "");
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [estimate, setEstimate] = useState<TxEstimate | null>(null);
@@ -36,11 +38,11 @@ export function SendModal({ fromAddressId, fromAddress, chainType, onClose, onSe
   const [error, setError] = useState<string | null>(null);
   const [txResult, setTxResult] = useState<{ txHash: string } | null>(null);
 
-  const tokens = tokenOptions[chain] ?? [];
+  const tokens = getTokensForChain(chain);
 
   const handleChainChange = (newChain: string) => {
     setChain(newChain);
-    const newTokens = tokenOptions[newChain] ?? [];
+    const newTokens = getTokensForChain(newChain);
     setToken(newTokens[0] ?? "");
     setEstimate(null);
   };

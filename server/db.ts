@@ -109,6 +109,17 @@ function initSchema(db: Database) {
       last_scanned_at TEXT,
       UNIQUE(address_id, chain)
     );
+
+    CREATE TABLE IF NOT EXISTS custom_tokens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      chain      TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      contract   TEXT NOT NULL,
+      decimals   INTEGER NOT NULL,
+      type       TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(chain, contract)
+    );
   `);
 }
 
@@ -314,4 +325,47 @@ export function getScanState(
     last_block: number;
     last_scanned_at: string | null;
   } | null;
+}
+
+// --- Custom token helpers ---
+
+export interface CustomTokenRow {
+  id: number;
+  chain: string;
+  name: string;
+  contract: string;
+  decimals: number;
+  type: string;
+  created_at: string;
+}
+
+export function insertCustomToken(data: {
+  chain: string;
+  name: string;
+  contract: string;
+  decimals: number;
+  type: string;
+}): number {
+  const stmt = getDb().prepare(
+    `INSERT INTO custom_tokens (chain, name, contract, decimals, type)
+     VALUES ($chain, $name, $contract, $decimals, $type)`
+  );
+  const result = stmt.run({
+    $chain: data.chain,
+    $name: data.name,
+    $contract: data.contract,
+    $decimals: data.decimals,
+    $type: data.type,
+  });
+  return Number(result.lastInsertRowid);
+}
+
+export function getCustomTokens(): CustomTokenRow[] {
+  return getDb()
+    .prepare("SELECT * FROM custom_tokens ORDER BY chain, name")
+    .all() as CustomTokenRow[];
+}
+
+export function deleteCustomToken(id: number): void {
+  getDb().prepare("DELETE FROM custom_tokens WHERE id = $id").run({ $id: id });
 }

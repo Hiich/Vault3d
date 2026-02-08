@@ -4,23 +4,30 @@ import type { BulkSendResult } from "../lib/api.ts";
 
 interface Props {
   selectedRows: Array<{ addressId: number; address: string; chainType: string }>;
+  tokenMap: Record<string, string[]>;
   onClearSelection: () => void;
   onComplete: () => void;
 }
 
-const evmTokens = ["ETH", "USDC", "USDT"];
-const solanaTokens = ["SOL", "USDC"];
+const defaultEvmTokens = ["ETH", "USDC", "USDT"];
+const defaultSolanaTokens = ["SOL", "USDC"];
 
-// For EVM bulk send, we need to pick a chain. Map token to a reasonable default chain.
-const evmChainForToken: Record<string, string> = {
-  ETH: "ethereum",
-  USDC: "ethereum",
-  USDT: "ethereum",
-};
-
-export function BulkSendBar({ selectedRows, onClearSelection, onComplete }: Props) {
+export function BulkSendBar({ selectedRows, tokenMap, onClearSelection, onComplete }: Props) {
   const chainType = selectedRows[0]?.chainType ?? "evm";
-  const tokens = chainType === "evm" ? evmTokens : solanaTokens;
+
+  // Derive tokens from tokenMap for the selected chain type
+  const tokens = (() => {
+    if (chainType === "solana") {
+      return tokenMap["solana"] ?? defaultSolanaTokens;
+    }
+    // For EVM, collect unique tokens across all EVM chains
+    const evmChains = ["ethereum", "base", "polygon", "abstract"];
+    const set = new Set<string>();
+    for (const c of evmChains) {
+      for (const t of (tokenMap[c] ?? [])) set.add(t);
+    }
+    return set.size > 0 ? Array.from(set) : defaultEvmTokens;
+  })();
 
   const [token, setToken] = useState(tokens[0] ?? "");
   const [chain, setChain] = useState(chainType === "evm" ? "ethereum" : "solana");
@@ -128,9 +135,6 @@ export function BulkSendBar({ selectedRows, onClearSelection, onComplete }: Prop
           value={token}
           onChange={(e) => {
             setToken(e.target.value);
-            if (chainType === "evm" && evmChainForToken[e.target.value]) {
-              setChain(evmChainForToken[e.target.value]!);
-            }
           }}
           className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-100 focus:outline-none focus:border-blue-500"
         >

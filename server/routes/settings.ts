@@ -42,7 +42,7 @@ export async function postSettings(req: Request): Promise<Response> {
 
     updateConfig(updates);
 
-    return Response.json({ saved: true, restartRequired: true });
+    return Response.json({ saved: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return Response.json({ error: msg }, { status: 500 });

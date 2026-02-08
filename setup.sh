@@ -30,23 +30,25 @@ if [ -f "package.json" ] && grep -q '"server.ts"' package.json 2>/dev/null; then
   INSTALL_DIR="$(pwd)"
 fi
 
-# --- 1. Xcode Command Line Tools (provides git, clang, etc.) ---
-if ! xcode-select -p &>/dev/null; then
-  echo -e "${YELLOW}Xcode Command Line Tools not found.${NC}"
-  echo "Installing... (a dialog may appear — click Install and wait)"
-  echo ""
+# --- 1. Xcode Command Line Tools (macOS only) ---
+if [ "$(uname -s)" = "Darwin" ]; then
+  if ! xcode-select -p &>/dev/null; then
+    echo -e "${YELLOW}Xcode Command Line Tools not found.${NC}"
+    echo "Installing... (a dialog may appear — click Install and wait)"
+    echo ""
 
-  # Trigger the install dialog
-  xcode-select --install 2>/dev/null || true
+    # Trigger the install dialog
+    xcode-select --install 2>/dev/null || true
 
-  # Wait for it to finish (the dialog is async)
-  echo "Waiting for Xcode CLT installation to complete..."
-  until xcode-select -p &>/dev/null; do
-    sleep 5
-  done
-  echo ""
+    # Wait for it to finish (the dialog is async)
+    echo "Waiting for Xcode CLT installation to complete..."
+    until xcode-select -p &>/dev/null; do
+      sleep 5
+    done
+    echo ""
+  fi
+  echo -e "${GREEN}✓${NC} Xcode Command Line Tools"
 fi
-echo -e "${GREEN}✓${NC} Xcode Command Line Tools"
 
 # --- 2. Git (should come with Xcode CLT, but verify) ---
 if ! command -v git &>/dev/null; then
@@ -99,8 +101,67 @@ echo -e "${GREEN}✓${NC} Dependencies installed"
 mkdir -p data
 echo -e "${GREEN}✓${NC} Data directory ready"
 
-# --- 7. Start server and open browser ---
+# --- 7. Create app launcher ---
+chmod +x "$INSTALL_DIR/launch.sh"
+
+OS="$(uname -s)"
+if [ "$OS" = "Darwin" ]; then
+  # macOS: create .app bundle in ~/Applications (searchable via Spotlight)
+  APP_DIR="$HOME/Applications/Vault3d.app/Contents/MacOS"
+  mkdir -p "$APP_DIR"
+  cat > "$APP_DIR/Vault3d" << LAUNCHER
+#!/bin/bash
+exec "$INSTALL_DIR/launch.sh"
+LAUNCHER
+  chmod +x "$APP_DIR/Vault3d"
+
+  # Info.plist for proper app identity
+  cat > "$HOME/Applications/Vault3d.app/Contents/Info.plist" << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Vault3d</string>
+  <key>CFBundleExecutable</key><string>Vault3d</string>
+  <key>CFBundleIdentifier</key><string>com.vault3d.app</string>
+  <key>CFBundleVersion</key><string>1.0</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSUIElement</key><false/>
+</dict>
+</plist>
+PLIST
+  echo -e "${GREEN}✓${NC} App created — search ${BOLD}Vault3d${NC} in Spotlight or find it in ~/Applications"
+
+elif [ "$OS" = "Linux" ]; then
+  # Linux: create .desktop file (shows in app menu)
+  DESKTOP_DIR="$HOME/.local/share/applications"
+  mkdir -p "$DESKTOP_DIR"
+  cat > "$DESKTOP_DIR/vault3d.desktop" << DESKTOP
+[Desktop Entry]
+Name=Vault3d
+Exec=$INSTALL_DIR/launch.sh
+Type=Application
+Terminal=true
+Categories=Utility;
+Comment=Local wallet extraction tool
+DESKTOP
+  chmod +x "$DESKTOP_DIR/vault3d.desktop"
+  echo -e "${GREEN}✓${NC} App added to application menu"
+fi
+
+# --- 8. Start server and open browser ---
 echo ""
+
+# Kill existing process on port 3000 (previous instance)
+if command -v lsof &>/dev/null && lsof -ti:3000 &>/dev/null; then
+  echo -e "${YELLOW}Stopping existing server on port 3000...${NC}"
+  kill $(lsof -ti:3000) 2>/dev/null || true
+  sleep 1
+elif command -v fuser &>/dev/null && fuser 3000/tcp 2>/dev/null; then
+  fuser -k 3000/tcp 2>/dev/null || true
+  sleep 1
+fi
+
 echo -e "${GREEN}${BOLD}Starting Vault3d...${NC}"
 echo ""
 bun run server.ts &
@@ -113,11 +174,22 @@ if kill -0 $SERVER_PID 2>/dev/null; then
   echo -e "${GREEN}✓ Vault3d is running at http://127.0.0.1:3000${NC}"
   echo ""
 
-  # Open browser (macOS)
+  # Open browser (cross-platform)
   if command -v open &>/dev/null; then
     open "http://127.0.0.1:3000"
+  elif command -v xdg-open &>/dev/null; then
+    xdg-open "http://127.0.0.1:3000"
   fi
 
+  echo ""
+  echo -e "${BOLD}To relaunch later:${NC}"
+  if [ "$OS" = "Darwin" ]; then
+    echo -e "  Search ${GREEN}Vault3d${NC} in Spotlight (Cmd+Space)"
+  elif [ "$OS" = "Linux" ]; then
+    echo -e "  Find ${GREEN}Vault3d${NC} in your application menu"
+  fi
+  echo -e "  Or run: ${GREEN}~/Vault3d/launch.sh${NC}"
+  echo ""
   echo "Press Ctrl+C to stop the server."
   echo ""
   wait $SERVER_PID

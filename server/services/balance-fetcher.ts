@@ -1,5 +1,6 @@
 import { getDb, upsertBalance } from "../db.ts";
-import { CHAINS, fetchEvmBalancesMulticall, fetchSolanaBalancesBatch } from "../../src/balances.ts";
+import { fetchEvmBalancesMulticall, fetchSolanaBalancesBatch } from "../../src/balances.ts";
+import { getEffectiveChains } from "./token-registry.ts";
 
 interface DbAddress {
   id: number;
@@ -71,7 +72,8 @@ export async function fetchAndStoreBalances(addressIds?: number[]): Promise<{
   const errors: string[] = [];
 
   // Fetch EVM balances per chain
-  const evmChains = CHAINS.filter((c) => c.type === "evm");
+  const effectiveChains = getEffectiveChains();
+  const evmChains = effectiveChains.filter((c) => c.type === "evm");
   const evmAddressStrings = evmAddresses.map((a) => a.address);
 
   for (const chain of evmChains) {
@@ -102,7 +104,7 @@ export async function fetchAndStoreBalances(addressIds?: number[]): Promise<{
   }
 
   // Fetch Solana balances
-  const solChain = CHAINS.find((c) => c.type === "solana");
+  const solChain = effectiveChains.find((c) => c.type === "solana");
   const solanaAddressStrings = solanaAddresses.map((a) => a.address);
 
   if (solChain && solanaAddressStrings.length > 0) {

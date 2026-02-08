@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { getWallets, deleteWallet, refreshBalances } from "../lib/api.ts";
+import { getWallets, deleteWallet, refreshBalances, getAllTokens } from "../lib/api.ts";
 import type { WalletWithAddresses, BalanceEntry } from "../lib/api.ts";
 import { truncateAddress, formatBalance, typeBadgeColor } from "../lib/format.ts";
 import { BulkSendBar } from "../components/BulkSendBar.tsx";
@@ -20,14 +20,16 @@ interface FlatRow {
   nativeVal: number;
   nativeLabel: string;
   nativeSecondary?: string;
-  usdcVal: number;
-  usdtVal: number;
+  tokenBalances: Record<string, number>;
 }
 
-type SortField = "native" | "usdc" | "usdt" | null;
+type SortField = string | null;
 type SortDir = "asc" | "desc";
 
 // --- Helpers ---
+
+// Native tokens that should appear in the "Native" column, not as separate token columns
+const NATIVE_TOKENS = new Set(["ETH", "SOL", "POL"]);
 
 function buildFlatRow(
   addr: { id: number; address: string; chain_type: string; derivation_index: number | null; balances: BalanceEntry[] },
@@ -35,24 +37,22 @@ function buildFlatRow(
 ): FlatRow {
   let nativeVal = 0;
   let pol = 0;
-  let usdcVal = 0;
-  let usdtVal = 0;
   let nativeLabel = "ETH";
+  const tokenBalances: Record<string, number> = {};
 
   if (addr.chain_type === "solana") {
     nativeLabel = "SOL";
-    for (const b of addr.balances) {
-      const v = parseFloat(b.balance);
-      if (b.token === "SOL") nativeVal += v;
-      else if (b.token === "USDC") usdcVal += v;
-    }
-  } else {
-    for (const b of addr.balances) {
-      const v = parseFloat(b.balance);
-      if (b.token === "ETH") nativeVal += v;
-      else if (b.token === "POL") pol += v;
-      else if (b.token === "USDC" || b.token === "USDC.e") usdcVal += v;
-      else if (b.token === "USDT") usdtVal += v;
+  }
+
+  for (const b of addr.balances) {
+    const v = parseFloat(b.balance);
+    if (b.token === "ETH" || b.token === "SOL") {
+      nativeVal += v;
+    } else if (b.token === "POL") {
+      pol += v;
+    } else {
+      // All non-native tokens go into tokenBalances
+      tokenBalances[b.token] = (tokenBalances[b.token] ?? 0) + v;
     }
   }
 
@@ -69,13 +69,12 @@ function buildFlatRow(
     nativeVal,
     nativeLabel,
     nativeSecondary: pol > 0.0001 ? `+${formatBalance(pol.toString())} POL` : undefined,
-    usdcVal,
-    usdtVal,
+    tokenBalances,
   };
 }
 
 function hasAnyBalance(row: FlatRow): boolean {
-  return row.nativeVal > 0 || row.usdcVal > 0 || row.usdtVal > 0;
+  return row.nativeVal > 0 || Object.values(row.tokenBalances).some((v) => v > 0);
 }
 
 // --- Component ---
@@ -95,6 +94,9 @@ export function Addresses() {
   const [filterProfile, setFilterProfile] = useState<string>("all");
   const [hideZero, setHideZero] = useState(false);
   const [search, setSearch] = useState("");
+
+  // Token map (dynamic)
+  const [tokenMap, setTokenMap] = useState<Record<string, string[]>>({});
 
   // Send modal
   const [sendModal, setSendModal] = useState<{ addressId: number; address: string; chainType: string } | null>(null);
@@ -127,6 +129,7 @@ export function Addresses() {
 
   useEffect(() => {
     fetchWallets();
+    getAllTokens().then((data) => setTokenMap(data.tokens)).catch(() => {});
   }, [fetchWallets]);
 
   // Build flat rows from wallet data
@@ -152,6 +155,26 @@ export function Addresses() {
     for (const w of wallets) set.add(w.type);
     return Array.from(set).sort();
   }, [wallets]);
+
+  // Derive non-native token columns from the token map
+  const nonNativeTokens = useMemo(() => {
+    const set = new Set<string>();
+    for (const tokens of Object.values(tokenMap)) {
+      for (const t of tokens) {
+        if (!NATIVE_TOKENS.has(t)) set.add(t);
+      }
+    }
+    return Array.from(set).sort();
+  }, [tokenMap]);
+
+  // All token names for filter dropdown (native + non-native)
+  const allTokenNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const tokens of Object.values(tokenMap)) {
+      for (const t of tokens) set.add(t);
+    }
+    return Array.from(set).sort();
+  }, [tokenMap]);
 
   // Available specific chains based on chain type filter
   const specificChainOptions = useMemo(() => {
@@ -225,9 +248,12 @@ export function Addresses() {
 
     // Sort
     if (sortField) {
-      const key = sortField === "native" ? "nativeVal" : sortField === "usdc" ? "usdcVal" : "usdtVal";
       const mul = sortDir === "desc" ? -1 : 1;
-      rows = [...rows].sort((a, b) => (a[key] - b[key]) * mul);
+      if (sortField === "native") {
+        rows = [...rows].sort((a, b) => (a.nativeVal - b.nativeVal) * mul);
+      } else {
+        rows = [...rows].sort((a, b) => ((a.tokenBalances[sortField] ?? 0) - (b.tokenBalances[sortField] ?? 0)) * mul);
+      }
     }
 
     return rows;
@@ -390,7 +416,7 @@ export function Addresses() {
           className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
         >
           <option value="all">All tokens</option>
-          {["ETH", "SOL", "POL", "USDC", "USDC.e", "USDT"].map((t) => (
+          {allTokenNames.map((t) => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
@@ -466,6 +492,7 @@ export function Addresses() {
       {selectedIds.size > 0 && (
         <BulkSendBar
           selectedRows={selectedRows}
+          tokenMap={tokenMap}
           onClearSelection={() => setSelectedIds(new Set())}
           onComplete={() => {
             setSelectedIds(new Set());
@@ -490,8 +517,8 @@ export function Addresses() {
           </p>
         </div>
       ) : (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm min-w-[700px]">
             <thead>
               <tr className="border-b border-gray-800 text-xs text-gray-500 uppercase tracking-wider">
                 <th className="px-3 py-2.5 text-left w-8">
@@ -509,18 +536,15 @@ export function Addresses() {
                 >
                   Native{sortIcon("native")}
                 </th>
-                <th
-                  className="px-3 py-2.5 text-right cursor-pointer hover:text-gray-300 select-none"
-                  onClick={() => toggleSort("usdc")}
-                >
-                  USDC{sortIcon("usdc")}
-                </th>
-                <th
-                  className="px-3 py-2.5 text-right cursor-pointer hover:text-gray-300 select-none"
-                  onClick={() => toggleSort("usdt")}
-                >
-                  USDT{sortIcon("usdt")}
-                </th>
+                {nonNativeTokens.map((token) => (
+                  <th
+                    key={token}
+                    className="px-3 py-2.5 text-right cursor-pointer hover:text-gray-300 select-none whitespace-nowrap"
+                    onClick={() => toggleSort(token)}
+                  >
+                    {token}{sortIcon(token)}
+                  </th>
+                ))}
                 <th className="px-3 py-2.5 text-center">Chain</th>
                 <th className="px-3 py-2.5 text-right w-24"></th>
               </tr>
@@ -528,7 +552,7 @@ export function Addresses() {
             <tbody>
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={5 + nonNativeTokens.length} className="px-3 py-8 text-center text-sm text-gray-500">
                     No addresses match your filters.
                   </td>
                 </tr>
@@ -537,6 +561,7 @@ export function Addresses() {
                   <FlatAddressRow
                     key={row.addressId}
                     row={row}
+                    nonNativeTokens={nonNativeTokens}
                     selected={selectedIds.has(row.addressId)}
                     disabled={selectedChainType !== null && selectedChainType !== row.chainType}
                     expanded={expandedIds.has(row.addressId)}
@@ -569,6 +594,7 @@ export function Addresses() {
           fromAddressId={sendModal.addressId}
           fromAddress={sendModal.address}
           chainType={sendModal.chainType}
+          tokenMap={tokenMap}
           onClose={() => setSendModal(null)}
           onSent={() => {
             setSendModal(null);
@@ -584,6 +610,7 @@ export function Addresses() {
 
 interface FlatAddressRowProps {
   row: FlatRow;
+  nonNativeTokens: string[];
   selected: boolean;
   disabled: boolean;
   expanded: boolean;
@@ -599,6 +626,7 @@ interface FlatAddressRowProps {
 
 function FlatAddressRow({
   row,
+  nonNativeTokens,
   selected,
   disabled,
   expanded,
@@ -693,23 +721,17 @@ function FlatAddressRow({
           )}
         </td>
 
-        {/* USDC */}
-        <td className="px-3 py-2 text-right">
-          <span className={`text-xs font-mono ${row.usdcVal > 0 ? "text-gray-200" : "text-gray-600"}`}>
-            {row.usdcVal > 0 ? formatBalance(row.usdcVal.toString()) : "--"}
-          </span>
-        </td>
-
-        {/* USDT */}
-        <td className="px-3 py-2 text-right">
-          {row.chainType === "solana" ? (
-            <span className="text-xs text-gray-700">--</span>
-          ) : (
-            <span className={`text-xs font-mono ${row.usdtVal > 0 ? "text-gray-200" : "text-gray-600"}`}>
-              {row.usdtVal > 0 ? formatBalance(row.usdtVal.toString()) : "--"}
-            </span>
-          )}
-        </td>
+        {/* Dynamic token columns */}
+        {nonNativeTokens.map((token) => {
+          const val = row.tokenBalances[token] ?? 0;
+          return (
+            <td key={token} className="px-3 py-2 text-right">
+              <span className={`text-xs font-mono ${val > 0 ? "text-gray-200" : "text-gray-600"}`}>
+                {val > 0 ? formatBalance(val.toString()) : "--"}
+              </span>
+            </td>
+          );
+        })}
 
         {/* Chain */}
         <td className="px-3 py-2 text-center">
@@ -770,31 +792,25 @@ function FlatAddressRow({
             </td>
             <td className="px-3 py-1 text-right">
               {chainBalances
-                .filter((b) => ["ETH", "POL", "SOL"].includes(b.token))
+                .filter((b) => NATIVE_TOKENS.has(b.token))
                 .map((b) => (
                   <div key={b.token} className="text-xs font-mono text-gray-400">
                     {formatBalance(b.balance)} <span className="text-gray-600">{b.token}</span>
                   </div>
                 ))}
             </td>
-            <td className="px-3 py-1 text-right">
-              {chainBalances
-                .filter((b) => b.token === "USDC" || b.token === "USDC.e")
-                .map((b) => (
-                  <div key={b.token} className="text-xs font-mono text-gray-400">
-                    {formatBalance(b.balance)}
-                  </div>
-                ))}
-            </td>
-            <td className="px-3 py-1 text-right">
-              {chainBalances
-                .filter((b) => b.token === "USDT")
-                .map((b) => (
-                  <div key={b.token} className="text-xs font-mono text-gray-400">
-                    {formatBalance(b.balance)}
-                  </div>
-                ))}
-            </td>
+            {nonNativeTokens.map((token) => {
+              const match = chainBalances.filter((b) => b.token === token);
+              return (
+                <td key={token} className="px-3 py-1 text-right">
+                  {match.map((b) => (
+                    <div key={b.token} className="text-xs font-mono text-gray-400">
+                      {formatBalance(b.balance)}
+                    </div>
+                  ))}
+                </td>
+              );
+            })}
             <td></td>
             <td></td>
           </tr>

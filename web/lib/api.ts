@@ -299,6 +299,38 @@ export const saveConfig = (body: {
     body: JSON.stringify(body),
   });
 
+// --- Custom Tokens ---
+export interface CustomToken {
+  id: number;
+  chain: string;
+  name: string;
+  contract: string;
+  decimals: number;
+  type: "evm" | "solana";
+  created_at: string;
+}
+
+export const getCustomTokens = () =>
+  request<{ tokens: CustomToken[] }>("/api/tokens");
+
+export const addCustomToken = (body: {
+  chain: string;
+  name: string;
+  contract: string;
+  decimals: number;
+  type: "evm" | "solana";
+}) =>
+  request<{ id: number }>("/api/tokens", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const deleteCustomToken = (id: number) =>
+  request<{ success: boolean }>(`/api/tokens/${id}`, { method: "DELETE" });
+
+export const getAllTokens = () =>
+  request<{ tokens: Record<string, string[]> }>("/api/tokens/all");
+
 // --- Bulk Send ---
 export interface BulkTransferItem {
   fromAddressId: number;

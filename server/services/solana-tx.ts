@@ -14,12 +14,28 @@ import {
 } from "@solana/spl-token";
 import bs58 from "bs58";
 
+import { getEffectiveChains } from "./token-registry.ts";
+
 // --- Config ---
 
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY ?? "";
 const SOLANA_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-const USDC_DECIMALS = 6;
+
+interface SplTokenInfo {
+  mint: PublicKey;
+  decimals: number;
+}
+
+function resolveSplToken(tokenName: string): SplTokenInfo | null {
+  const chains = getEffectiveChains();
+  const solChain = chains.find((c) => c.type === "solana");
+  if (!solChain) return null;
+
+  const token = solChain.tokens.find((t) => t.name === tokenName);
+  if (!token) return null;
+
+  return { mint: new PublicKey(token.contract), decimals: token.decimals };
+}
 
 function getConnection(): Connection {
   return new Connection(SOLANA_RPC, "confirmed");
@@ -95,11 +111,14 @@ export async function estimateSolanaTx(params: SolanaTxParams): Promise<{
         lamports: Number(lamports),
       })
     );
-  } else if (params.token === "USDC") {
-    const amount = parseAmount(params.amount, USDC_DECIMALS);
+  } else {
+    const splToken = resolveSplToken(params.token);
+    if (!splToken) throw new Error(`Unsupported Solana token: ${params.token}`);
 
-    const fromAta = await getAssociatedTokenAddress(USDC_MINT, keypair.publicKey);
-    const toAta = await getAssociatedTokenAddress(USDC_MINT, toPubkey);
+    const amount = parseAmount(params.amount, splToken.decimals);
+
+    const fromAta = await getAssociatedTokenAddress(splToken.mint, keypair.publicKey);
+    const toAta = await getAssociatedTokenAddress(splToken.mint, toPubkey);
 
     // Check if recipient ATA exists
     try {
@@ -111,7 +130,7 @@ export async function estimateSolanaTx(params: SolanaTxParams): Promise<{
           keypair.publicKey,
           toAta,
           toPubkey,
-          USDC_MINT
+          splToken.mint
         )
       );
     }
@@ -119,8 +138,6 @@ export async function estimateSolanaTx(params: SolanaTxParams): Promise<{
     transaction.add(
       createTransferInstruction(fromAta, toAta, keypair.publicKey, Number(amount))
     );
-  } else {
-    throw new Error(`Unsupported Solana token: ${params.token}`);
   }
 
   const { blockhash } = await connection.getLatestBlockhash();
@@ -162,12 +179,15 @@ export async function sendSolanaTx(params: SolanaTxParams): Promise<{
         lamports: Number(lamports),
       })
     );
-  } else if (params.token === "USDC") {
-    const amount = parseAmount(params.amount, USDC_DECIMALS);
+  } else {
+    const splToken = resolveSplToken(params.token);
+    if (!splToken) throw new Error(`Unsupported Solana token: ${params.token}`);
+
+    const amount = parseAmount(params.amount, splToken.decimals);
     amountRaw = amount.toString();
 
-    const fromAta = await getAssociatedTokenAddress(USDC_MINT, keypair.publicKey);
-    const toAta = await getAssociatedTokenAddress(USDC_MINT, toPubkey);
+    const fromAta = await getAssociatedTokenAddress(splToken.mint, keypair.publicKey);
+    const toAta = await getAssociatedTokenAddress(splToken.mint, toPubkey);
 
     // Check if recipient ATA exists
     try {
@@ -179,7 +199,7 @@ export async function sendSolanaTx(params: SolanaTxParams): Promise<{
           keypair.publicKey,
           toAta,
           toPubkey,
-          USDC_MINT
+          splToken.mint
         )
       );
     }
@@ -187,8 +207,6 @@ export async function sendSolanaTx(params: SolanaTxParams): Promise<{
     transaction.add(
       createTransferInstruction(fromAta, toAta, keypair.publicKey, Number(amount))
     );
-  } else {
-    throw new Error(`Unsupported Solana token: ${params.token}`);
   }
 
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();

@@ -26,15 +26,27 @@ Connections      — Cluster cards + interactive D3 graph
 
 ### Install (one command)
 
-Open Terminal (press **Cmd + Space**, type **Terminal**, press **Enter**) and paste:
+Open Terminal and paste:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Hiich/Vault3d/main/setup.sh | bash
 ```
 
-That's it. The script installs everything automatically (Xcode tools, Bun, dependencies), downloads the app to `~/Vault3d`, starts the server, and opens your browser.
+That's it. The script installs everything automatically (Xcode CLT / Bun / dependencies), downloads the app to `~/Vault3d`, creates an app launcher, starts the server, and opens your browser.
 
-**Re-running** the command updates to the latest version and relaunches.
+Works on **macOS** and **Linux**.
+
+### Relaunch
+
+After the first install, you don't need the terminal anymore:
+
+| Platform | How to relaunch |
+|----------|----------------|
+| **macOS** | Press **Cmd + Space**, type **Vault3d**, press **Enter** |
+| **Linux** | Find **Vault3d** in your application menu |
+| **Terminal** | `~/Vault3d/launch.sh` |
+
+Re-running the `curl` command also works — it updates to the latest version and relaunches.
 
 ### Developer Setup
 
@@ -98,7 +110,8 @@ HELIUS_API_KEY=your_helius_key
 
 ```
 server.ts                         Bun.serve() entry point (127.0.0.1:3000)
-├── setup.sh                      One-command installer
+├── setup.sh                      One-command installer (creates app launcher)
+├── launch.sh                     Relaunch script (used by .app / .desktop)
 ├── server/
 │   ├── config.ts                 Config manager (reads data/config.json → process.env)
 │   ├── db.ts                     SQLite schema + CRUD (bun:sqlite, WAL mode)

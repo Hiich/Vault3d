@@ -7,6 +7,7 @@ import { postRefresh, getSummary } from "./server/routes/balances.ts";
 import { postEstimate, postSend, postBulkSend, listTransactions } from "./server/routes/transactions.ts";
 import { postScan, getScanStateSummary, getClusters, listConnections } from "./server/routes/connections.ts";
 import { getSettings, postSettings } from "./server/routes/settings.ts";
+import { listCustomTokens, addCustomToken, removeCustomToken, getAllTokens } from "./server/routes/tokens.ts";
 
 const PORT = 3000;
 
@@ -75,6 +76,13 @@ Bun.serve({
     // Settings
     if (path === "/api/settings" && method === "GET") return getSettings(req);
     if (path === "/api/settings" && method === "POST") return postSettings(req);
+
+    // Custom Tokens
+    if (path === "/api/tokens/all" && method === "GET") return getAllTokens(req);
+    if (path === "/api/tokens" && method === "GET") return listCustomTokens(req);
+    if (path === "/api/tokens" && method === "POST") return addCustomToken(req);
+    const tokenIdMatch = path.match(/^\/api\/tokens\/(\d+)$/);
+    if (tokenIdMatch && method === "DELETE") return removeCustomToken(req, parseInt(tokenIdMatch[1]!, 10));
 
     // 404
     return Response.json({ error: "Not found" }, { status: 404 });

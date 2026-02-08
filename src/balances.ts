@@ -9,14 +9,21 @@ import type {
 } from "./types";
 
 // --- Chain configs ---
+// RPC URLs are resolved lazily via getters so that API keys saved at runtime
+// (e.g. via the Setup wizard) take effect without a server restart.
 
-const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY ?? "";
-const HELIUS_API_KEY = process.env.HELIUS_API_KEY ?? "";
+function alchemyUrl(network: string): string {
+  return `https://${network}.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY ?? ""}`;
+}
+
+function heliusRpcUrl(): string {
+  return `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY ?? ""}`;
+}
 
 export const CHAINS: ChainConfig[] = [
   {
     name: "ethereum",
-    rpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
+    get rpcUrl() { return alchemyUrl("eth-mainnet"); },
     nativeToken: "ETH",
     type: "evm",
     decimals: 18,
@@ -35,7 +42,7 @@ export const CHAINS: ChainConfig[] = [
   },
   {
     name: "base",
-    rpcUrl: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
+    get rpcUrl() { return alchemyUrl("base-mainnet"); },
     nativeToken: "ETH",
     type: "evm",
     decimals: 18,
@@ -54,7 +61,7 @@ export const CHAINS: ChainConfig[] = [
   },
   {
     name: "polygon",
-    rpcUrl: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
+    get rpcUrl() { return alchemyUrl("polygon-mainnet"); },
     nativeToken: "POL",
     type: "evm",
     decimals: 18,
@@ -92,7 +99,7 @@ export const CHAINS: ChainConfig[] = [
   },
   {
     name: "solana",
-    rpcUrl: `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`,
+    get rpcUrl() { return heliusRpcUrl(); },
     nativeToken: "SOL",
     type: "solana",
     decimals: 9,

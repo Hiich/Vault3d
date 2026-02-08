@@ -82,7 +82,6 @@ export function updateConfig(
   } catch {}
 
   // Also update process.env so the current process picks up changes
-  // (but module-level consts in balances.ts etc. won't update until restart)
   if (updates.alchemy_api_key !== undefined) {
     process.env.ALCHEMY_API_KEY = updates.alchemy_api_key;
   }
