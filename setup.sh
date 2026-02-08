@@ -151,7 +151,7 @@ Icon=$INSTALL_DIR/logo.png
 Type=Application
 Terminal=true
 Categories=Utility;
-Comment=Local wallet extraction tool
+Comment=Vault3d — local wallet manager
 DESKTOP
   chmod +x "$DESKTOP_DIR/vault3d.desktop"
   echo -e "${GREEN}✓${NC} App added to application menu"

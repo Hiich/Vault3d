@@ -82,8 +82,13 @@ export function Layout({ children, currentPage }: LayoutProps) {
       {/* Sidebar */}
       <aside className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0">
         <div className="p-4 border-b border-gray-800">
-          <h1 className="text-lg font-bold text-blue-400 tracking-tight">wallet-extract</h1>
-          <p className="text-xs text-gray-500 mt-0.5">v1.0.0</p>
+          <a href="#/" className="flex items-center gap-2.5">
+            <img src="/logo.png" alt="Vault3d" className="w-8 h-8 rounded-lg" />
+            <div>
+              <h1 className="text-lg font-bold text-cyan-400 tracking-tight leading-none">Vault3d</h1>
+              <p className="text-[10px] text-gray-600 mt-0.5">local wallet manager</p>
+            </div>
+          </a>
         </div>
         <nav className="flex-1 p-2 space-y-1">
           {navItems.filter((i) => i.page !== "settings").map((item) => {
@@ -122,8 +127,8 @@ export function Layout({ children, currentPage }: LayoutProps) {
               {item.label}
             </a>
           ))}
-          <div className="px-3 py-2 text-xs text-gray-600">
-            Bun + React 19
+          <div className="px-3 py-2 text-[10px] text-gray-700">
+            127.0.0.1 only
           </div>
         </div>
       </aside>

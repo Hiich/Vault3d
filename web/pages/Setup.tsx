@@ -41,10 +41,11 @@ export function Setup({ onComplete }: SetupProps) {
     <div className="min-h-screen flex items-center justify-center">
       <div className="max-w-lg w-full">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-blue-400 mb-2">Welcome to Vault3d</h1>
+          <img src="/logo.png" alt="Vault3d" className="w-16 h-16 rounded-2xl mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-cyan-400 mb-2">Welcome to Vault3d</h1>
           <p className="text-sm text-gray-400">
-            A local tool for extracting and managing browser extension wallets.
-            Wallet extraction works without API keys. Balances, transactions, and
+            Local wallet manager for Chromium browsers.
+            Extraction works without API keys. Balances, transactions, and
             connections require them.
           </p>
         </div>

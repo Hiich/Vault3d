@@ -1,6 +1,6 @@
 # Vault3d
 
-Local-only tool for extracting and managing browser extension wallets (MetaMask + Phantom) from Brave browser profiles. Includes a web UI for extraction, browsing, balance tracking, and sending transactions.
+Local-only tool for extracting and managing browser extension wallets from Chromium-based browsers. Auto-detects Brave, Chrome, Edge, Arc, Opera, and Chromium, with support for MetaMask, Phantom, Rabby, and Coinbase Wallet extensions. Includes a web UI for extraction, browsing, balance tracking, and sending transactions.
 
 Everything runs on `127.0.0.1` — nothing is exposed to the network. Passwords are used only during extraction and never stored. The server auto-shuts down after 30 minutes of inactivity.
 
@@ -28,12 +28,33 @@ Opens at http://127.0.0.1:3000.
 
 ## Features
 
-- **Wallet Extraction** — Reads MetaMask and Phantom extension data from Brave browser profiles via LevelDB. Supports per-profile passwords with retry.
+- **Multi-Browser Discovery** — Auto-detects Brave, Chrome, Edge, Arc, Opera, and Chromium with all their profiles. Shows a discovery tree of what's installed.
+- **Multi-Wallet Extraction** — Supports MetaMask, Phantom, Rabby, and Coinbase Wallet. Dynamic password fields — only shows inputs for extensions actually detected on your system.
 - **Balance Tracking** — Fetches balances across Ethereum, Base, Polygon, Abstract (EVM) and Solana using Multicall3 and native RPC.
 - **Send Transactions** — Sign and broadcast native + token transfers (ERC-20, SPL) directly from the UI. Fee estimation included.
 - **Wallet Connections** — Discovers links between wallets by analyzing on-chain transfer history (Alchemy for EVM, Helius for Solana). Union-Find clustering with D3.js force-directed graph visualization.
 - **Custom Tokens** — Track any ERC-20 or SPL token by adding its contract address in Settings.
 - **Auto-shutdown** — Server exits after 30 minutes of inactivity so it doesn't sit in the background.
+
+## Supported Browsers
+
+| Browser | macOS | Linux | Windows |
+|---------|-------|-------|---------|
+| Brave | Yes | Yes | Yes |
+| Chrome | Yes | Yes | Yes |
+| Edge | Yes | Yes | Yes |
+| Arc | Yes | — | — |
+| Opera | Yes | Yes | Yes |
+| Chromium | Yes | Yes | Yes |
+
+## Supported Wallets
+
+| Wallet | Parser | Chain |
+|--------|--------|-------|
+| MetaMask | AES-256-GCM | EVM |
+| Phantom | NaCl secretbox | Solana |
+| Rabby | AES-256-GCM | EVM |
+| Coinbase Wallet | AES-256-GCM | EVM |
 
 ## Supported Chains
 

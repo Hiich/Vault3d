@@ -35,6 +35,12 @@ Bun.serve({
     const path = url.pathname;
     const method = req.method;
 
+    // --- Static assets ---
+    if (path === "/logo.png") {
+      const file = Bun.file(import.meta.dir + "/logo.png");
+      return new Response(file, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+    }
+
     // --- API Routes ---
 
     // Extraction
@@ -100,4 +106,4 @@ Bun.serve({
   },
 });
 
-console.log(`Wallet Extract running at http://127.0.0.1:${PORT}`);
+console.log(`Vault3d running at http://127.0.0.1:${PORT}`);
