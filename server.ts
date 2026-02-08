@@ -10,6 +10,16 @@ import { getSettings, postSettings } from "./server/routes/settings.ts";
 import { listCustomTokens, addCustomToken, removeCustomToken, getAllTokens } from "./server/routes/tokens.ts";
 
 const PORT = 3000;
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+let lastActivity = Date.now();
+
+// Auto-shutdown after 30 minutes of inactivity
+setInterval(() => {
+  if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
+    console.log("No activity for 30 minutes — shutting down.");
+    process.exit(0);
+  }
+}, 60_000);
 
 Bun.serve({
   port: PORT,
@@ -20,6 +30,7 @@ Bun.serve({
   },
 
   async fetch(req) {
+    lastActivity = Date.now();
     const url = new URL(req.url);
     const path = url.pathname;
     const method = req.method;

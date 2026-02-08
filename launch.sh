@@ -24,8 +24,17 @@ fi
 bun run server.ts &
 SERVER_PID=$!
 
-sleep 2
-if kill -0 $SERVER_PID 2>/dev/null; then
+# Wait for server to be ready (poll instead of fixed sleep)
+READY=0
+for i in $(seq 1 30); do
+  if curl -s -o /dev/null http://127.0.0.1:3000 2>/dev/null; then
+    READY=1
+    break
+  fi
+  sleep 0.5
+done
+
+if [ "$READY" -eq 1 ] && kill -0 $SERVER_PID 2>/dev/null; then
   # Open browser (cross-platform)
   if command -v open &>/dev/null; then
     open "http://127.0.0.1:3000"
