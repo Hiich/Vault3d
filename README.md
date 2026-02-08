@@ -24,18 +24,22 @@ Connections      — Cluster cards + interactive D3 graph
 
 ## Quick Start
 
-### Easy Install (one command)
+### Install (one command)
+
+Open Terminal (press **Cmd + Space**, type **Terminal**, press **Enter**) and paste:
 
 ```bash
-git clone https://github.com/hichambenhima/Vault3d.git && cd Vault3d && bash setup.sh
+curl -fsSL https://raw.githubusercontent.com/Hiich/Vault3d/main/setup.sh | bash
 ```
 
-This handles everything: installs Bun (if needed), installs dependencies, starts the server, and opens the app. On first run you'll see a setup wizard to enter your API keys (or skip — extraction works without them).
+That's it. The script installs everything automatically (Xcode tools, Bun, dependencies), downloads the app to `~/Vault3d`, starts the server, and opens your browser.
+
+**Re-running** the command updates to the latest version and relaunches.
 
 ### Developer Setup
 
 ```bash
-git clone https://github.com/hichambenhima/Vault3d.git
+git clone https://github.com/Hiich/Vault3d.git
 cd Vault3d
 bun install
 bun run start
